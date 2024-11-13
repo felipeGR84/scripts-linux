@@ -6,12 +6,15 @@ from datetime import datetime
 from genie.conf.base import Device
 from genie.libs.parser.nxos import show_routing
 
-# Function to validate file path
-def validate_file_path(prompt, expected_extension=None):
+# Function to validate file path, supporting both .txt and .log extensions
+def validate_file_path(prompt, expected_extensions=None):
     while True:
         file_path = input(prompt)
-        if expected_extension and not file_path.endswith(expected_extension):
-            print(f"El archivo debe tener la extensión {expected_extension}.")
+        if file_path.lower() == 'end':
+            print("Cerrando el programa.")
+            exit()
+        if expected_extensions and not any(file_path.endswith(ext) for ext in expected_extensions):
+            print(f"El archivo debe tener una de las siguientes extensiones: {', '.join(expected_extensions)}.")
             continue
         if os.path.isfile(file_path):
             return file_path
@@ -22,8 +25,10 @@ def validate_file_path(prompt, expected_extension=None):
 def validate_output_file_name(prompt):
     while True:
         file_name = input(prompt).strip()
+        if file_name.lower() == 'end':
+            print("Cerrando el programa.")
+            exit()
         if file_name:
-            # Ensure the file name ends with .csv
             if not file_name.endswith('.csv'):
                 file_name += '.csv'
             return file_name
@@ -62,23 +67,20 @@ def parse_show_ip_route(show_ip_route_output, date_folder):
 def convert_json_to_csv(parsed_data, csv_file_path):
     try:
         with open(csv_file_path, mode='w', newline='') as csv_file:
-            # Adding "tag" as a field for OSPF-specific routes
-            fieldnames = ["vrf", "protocol", "network", "distance", "metric", "next_hop", "time", "interface", "source_protocol_codes", "source_protocol_status", "tag"]
+            fieldnames = ["vrf", "protocol", "network", "distance", "metric", "next_hop", "time", "interface", "source_protocol_status", "tag"]
             csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             csv_writer.writeheader()
 
-            # Iterate over the routes and extract relevant data
             for vrf, vrf_data in parsed_data["vrf"].items():
                 for route, route_info in vrf_data["address_family"]["ipv4"]["routes"].items():
                     protocol = route_info.get("source_protocol", "n/a").upper()
                     network = route_info.get("route", "n/a")
                     distance = route_info.get("route_preference", "n/a")
                     metric = route_info.get("metric", "n/a")
-                    source_protocol_codes = route_info.get("source_protocol_codes", "n/a")
+                    #source_protocol_codes = route_info.get("source_protocol_codes", "n/a")
                     source_protocol_status = route_info.get("source_protocol_status", "n/a") if protocol == "OSPF" else "n/a"
-                    tag = route_info.get("tag", "n/a") if protocol == "OSPF" else "n/a"  # Include tag if protocol is OSPF
+                    tag = route_info.get("tag", "n/a") if protocol == "OSPF" else "n/a"
 
-                    # Extract next hop information
                     next_hop_info = route_info.get("next_hop", {}).get("next_hop_list", {})
                     for hop_index, hop_details in next_hop_info.items():
                         csv_writer.writerow({
@@ -90,9 +92,9 @@ def convert_json_to_csv(parsed_data, csv_file_path):
                             "next_hop": hop_details.get("next_hop", "n/a"),
                             "time": hop_details.get("updated", "n/a"),
                             "interface": hop_details.get("outgoing_interface", "n/a"),
-                            "source_protocol_codes": source_protocol_codes,
+                            #"source_protocol_codes": source_protocol_codes,
                             "source_protocol_status": hop_details.get("source_protocol_status", "n/a") if protocol == "OSPF" else "n/a",
-                            "tag": tag  # Include tag in the row if applicable
+                            "tag": tag
                         })
 
         print(f"CSV file created at: {csv_file_path}")
@@ -101,8 +103,8 @@ def convert_json_to_csv(parsed_data, csv_file_path):
 
 # Function to generate a report based on CSV data, organized by VRF
 def generate_report(csv_file_path, date_folder):
-    routes = defaultdict(lambda: defaultdict(list))  # Nested dictionary to store VRF -> next-hop -> networks
-    next_hop_counts = defaultdict(lambda: defaultdict(int))  # Nested dictionary for VRF -> next-hop -> count
+    routes = defaultdict(lambda: defaultdict(list))
+    next_hop_counts = defaultdict(lambda: defaultdict(int))
 
     try:
         with open(csv_file_path, mode='r') as csv_file:
@@ -116,7 +118,6 @@ def generate_report(csv_file_path, date_folder):
                     routes[vrf][next_hop].append(network)
                     next_hop_counts[vrf][next_hop] += 1
 
-        # Generate the report text
         report_file_name = f"{os.path.splitext(csv_file_path)[0]}-report.txt"
         report_file_path = report_file_name
 
@@ -133,18 +134,18 @@ def generate_report(csv_file_path, date_folder):
                 for next_hop, networks in vrf_next_hops.items():
                     count = next_hop_counts[vrf][next_hop]
                     report_file.write(f"  Next-hop {next_hop}: {count} redes\n")
-                    #for network in networks:
-                     #   report_file.write(f"    - {network}\n")
 
         print(f"El archivo de reporte se ha guardado en {report_file_path}")
     except Exception as e:
         print(f"Error generating report: {e}")
 
-
 # Main function
 def main():
     # Step 1: Get the input file path and output CSV file name
-    show_ip_route_file_path = validate_file_path("Introduce el archivo de salida de show ip route (por ejemplo, show_ip_route_output.txt): ", ".txt")
+    show_ip_route_file_path = validate_file_path(
+        "Introduce el archivo de salida de show ip route (por ejemplo, show_ip_route_output.txt or. log, si quiere cerrar el programa introduce 'end'): ",
+        [".txt", ".log"]
+    )
     csv_file_name = validate_output_file_name("Introduce el nombre del archivo CSV de salida (por ejemplo, output.csv): ")
 
     # Step 2: Create date-based folder
